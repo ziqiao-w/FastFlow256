@@ -14,6 +14,7 @@ def create_network(config):
         in_channels=config.num_in_channels,
         label_dropout=config.label_dropout,
         num_classes=config.num_classes,
+        out_channels=config.num_out_channels,
     )
 
 
