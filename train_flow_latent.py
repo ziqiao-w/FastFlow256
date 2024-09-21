@@ -310,7 +310,7 @@ if __name__ == "__main__":
     parser.add_argument("--num_head_upsample", type=int, default=-1, help="number of head upsample")
     parser.add_argument("--num_head_channels", type=int, default=-1, help="number of head channels")
 
-    parser.add_argument("--pretrained_autoencoder_ckpt", type=str, default="stabilityai/sd-vae-ft-mse")
+    parser.add_argument("--pretrained_autoencoder_ckpt", type=str, default="/mnt/nas_jiasheng/zhaowangbo/dynamic_diffusion_NeurIPS2024/stabilityai/sd-vae-ft-ema")
 
     # training
     parser.add_argument("--exp", default="experiment_cifar_default", help="name of experiment")
