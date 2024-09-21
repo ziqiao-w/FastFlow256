@@ -1,3 +1,5 @@
+torch==1.13.1
+numpy==1.25.0
 lmdb
 diffusers
 torchdiffeq
