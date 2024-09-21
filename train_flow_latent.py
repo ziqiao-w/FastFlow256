@@ -53,6 +53,7 @@ def train(args):
     # Setup accelerator:
     accelerator = Accelerator()
     device = accelerator.device
+    print("Accelerator Device:", device)
     dtype = torch.float32
     set_seed(args.seed + accelerator.process_index)
 
@@ -146,8 +147,9 @@ def train(args):
             t = t.view(-1, 1, 1, 1)
             z_1 = torch.randn_like(z_0)
             # 1 is real noise, 0 is real data
-            z_t = (1 - t) * z_0 + (1e-5 + (1 - 1e-5) * t) * z_1
-            u = (1 - 1e-5) * z_1 - z_0
+            z_t = (1 - t) * z_0 + t * z_1
+            # u = z_1 - z_0
+            u = torch.cat([z_0, z_1], dim=1)
             # estimate velocity
             v = model(t.squeeze(), z_t, y)
             loss = F.mse_loss(v, u)
@@ -178,7 +180,17 @@ def train(args):
                     rand = torch.randn_like(z_0)[:4]
                     if y is not None:
                         y = y[:4]
-                    sample_model = partial(model, y=y)
+
+                    class model_ot_(torch.nn.Module):
+                        def __init__(self, model):
+                            super().__init__()
+                            self.model = model
+                        
+                        def forward(self, t, x, y=None):
+                            z0, z1 = self.model(t, x, y=y).chunk(2, dim=1)
+                            return z1 - z0
+                    
+                    sample_model = partial(model_ot_(model), y=y)
                     # sample_func = lambda t, x: model(t, x, y=y)
                     fake_sample = sample_from_model(sample_model, rand)[-1]
                     fake_image = first_stage_model.decode(fake_sample / args.scale_factor).sample
