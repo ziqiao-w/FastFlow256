@@ -42,7 +42,7 @@
 ############################################## DiT-B/2 ~ IMNET 256 ###############################################
 accelerate launch --multi_gpu --num_processes 8 train_flow_latent.py --exp imcdnet_f8_ditb2 \
     --dataset imagenet_256 --datadir /earth-nas/datasets/imagenet-1k/ \
-    --batch_size 256 --num_epoch 1000 --label_dim 1000 \
+    --batch_size 32 --num_epoch 1000 --label_dim 1000 \
     --image_size 256 --f 8 --num_in_channels 4 --num_out_channels 8 \
     --nf 256 --ch_mult 1 2 3 4 --attn_resolution 16 8 4 --num_res_blocks 2 \
     --lr 1e-4 --scale_factor 0.18215 --no_lr_decay \
