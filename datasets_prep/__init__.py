@@ -36,6 +36,20 @@ def get_dataset(args):
             ),
         )
 
+    elif args.dataset == "imagenet_64":
+        dataset = ImageNet(
+            args.datadir,
+            split="train",
+            transform=transforms.Compose(
+                [
+                    transforms.Lambda(lambda pil_image: center_crop_arr(pil_image, 64)),
+                    transforms.RandomHorizontalFlip(),
+                    transforms.ToTensor(),
+                    transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+                ]
+            ),
+        )
+
     elif args.dataset == "lsun_church":
         train_transform = transforms.Compose(
             [
