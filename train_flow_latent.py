@@ -73,11 +73,11 @@ def train(args):
     if args.use_grad_checkpointing and "DiT" in args.model_type:
         model.set_gradient_checkpointing()
 
-    first_stage_model = AutoencoderKL.from_pretrained(args.pretrained_autoencoder_ckpt).to(device, dtype=dtype)
-    first_stage_model = first_stage_model.eval()
-    first_stage_model.train = False
-    for param in first_stage_model.parameters():
-        param.requires_grad = False
+    # first_stage_model = AutoencoderKL.from_pretrained(args.pretrained_autoencoder_ckpt).to(device, dtype=dtype)
+    # first_stage_model = first_stage_model.eval()
+    # first_stage_model.train = False
+    # for param in first_stage_model.parameters():
+    #     param.requires_grad = False
 
     accelerator.print("AutoKL size: {:.3f}MB".format(get_weight(first_stage_model)))
     accelerator.print("FM size: {:.3f}MB".format(get_weight(model)))
@@ -138,10 +138,10 @@ def train(args):
             x_0 = x.to(device, dtype=dtype, non_blocking=True)
             y = None if not use_label else y.to(device, non_blocking=True)
             model.zero_grad()
-            if is_latent_data:
-                z_0 = x_0 * args.scale_factor
-            else:
-                z_0 = first_stage_model.encode(x_0).latent_dist.sample().mul_(args.scale_factor)
+            # if is_latent_data:
+            #     z_0 = x_0 * args.scale_factor
+            # else:
+            #     z_0 = first_stage_model.encode(x_0).latent_dist.sample().mul_(args.scale_factor)
             # sample t
             t = torch.rand((z_0.size(0),), dtype=dtype, device=device)
             t = t.view(-1, 1, 1, 1)
@@ -193,7 +193,8 @@ def train(args):
                     sample_model = partial(model_ot_(model), y=y)
                     # sample_func = lambda t, x: model(t, x, y=y)
                     fake_sample = sample_from_model(sample_model, rand)[-1]
-                    fake_image = first_stage_model.decode(fake_sample / args.scale_factor).sample
+                    # fake_image = first_stage_model.decode(fake_sample / args.scale_factor).sample
+                    fake_image = fake_sample
                 torchvision.utils.save_image(
                     fake_image,
                     os.path.join(exp_path, "image_epoch_{}.png".format(epoch)),
