@@ -142,6 +142,7 @@ def train(args):
             #     z_0 = x_0 * args.scale_factor
             # else:
             #     z_0 = first_stage_model.encode(x_0).latent_dist.sample().mul_(args.scale_factor)
+            z_0 = x_0
             # sample t
             t = torch.rand((z_0.size(0),), dtype=dtype, device=device)
             t = t.view(-1, 1, 1, 1)
