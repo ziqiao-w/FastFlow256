@@ -5,7 +5,7 @@ accelerate launch --multi_gpu --num_processes 8 train_flow_latent.py --exp imnet
     --image_size 256 --f 1 --num_in_channels 3 --num_out_channels 6 \
     --nf 256 --ch_mult 1 2 2 2 --attn_resolution 16 8 --num_res_blocks 2 \
     --lr 1e-4 --scale_factor 0.18215 --no_lr_decay \
-    --num_classes 1000 --label_dropout 0.1 \
+    --num_classes 1000 --model_type adm --label_dropout 0.1 \
     --save_content --save_content_every 10 \
     
 
