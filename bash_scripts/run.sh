@@ -1,13 +1,33 @@
 ############################################## DiT-B/2 ~ IMNET 256 ###############################################
-accelerate launch --multi_gpu --num_processes 8 train_flow_latent.py --exp imnet64 \
-    --dataset imagenet_64 --datadir /earth-nas/datasets/imagenet-1k/ \
-    --batch_size 32 --num_epoch 1000 --label_dim 1000 \
-    --image_size 256 --f 1 --num_in_channels 3 --num_out_channels 6 \
-    --nf 256 --ch_mult 1 2 2 2 --attn_resolution 16 8 --num_res_blocks 2 \
-    --lr 1e-4 --scale_factor 0.18215 --no_lr_decay \
-    --num_classes 1000 --model_type adm --label_dropout 0.1 \
-    --save_content --save_content_every 10 \
+# accelerate launch --multi_gpu --num_processes 8 train_flow_latent.py --exp imnet64 \
+#     --dataset imagenet_64 --datadir /earth-nas/datasets/imagenet-1k/ \
+#     --batch_size 32 --num_epoch 1000 --label_dim 1000 \
+#     --image_size 256 --f 1 --num_in_channels 3 --num_out_channels 6 \
+#     --nf 256 --ch_mult 1 2 2 2 --attn_resolution 16 8 --num_res_blocks 2 \
+#     --lr 1e-4 --scale_factor 0.18215 --no_lr_decay \
+#     --num_classes 1000 --model_type adm --label_dropout 0.1 \
+#     --save_content --save_content_every 10 \
+
+############################################### ADM ~ Cifar10 32  ###############################################
+# accelerate launch --main_process_port 29501 --multi_gpu --num_processes 2 train_flow_latent.py --exp cifar10_32 \
+#     --dataset cifar10 --datadir /data/common/ \
+#     --batch_size 64 --num_epoch 1000  \
+#     --image_size 32 --f 1 --num_in_channels 3 --num_out_channels 3 \
+#     --nf 256 --ch_mult 1 2 2 2 --attn_resolution 16 --num_res_blocks 2 \
+#     --lr 1e-4 --scale_factor 0.18215  \
+#     --model_type adm \
+#     --save_content --save_content_every 10 \
     
+############################################### ADM ~ Cifar10 32  ###############################################
+accelerate launch --main_process_port 29502 --num_processes 1 train_flow_latent.py --exp edges2shoes_nores \
+    --dataset edges2shoes --datadir /home/nus-wzq/.cache/kagglehub/datasets/balraj98/edges2shoes-dataset/versions/1/ \
+    --batch_size 128 --num_epoch 1000  \
+    --image_size 64 --f 8 --num_in_channels 4 --num_out_channels 4 \
+    --nf 256 --ch_mult 1 2 2 2 --attn_resolution 16 --num_res_blocks 2 \
+    --lr 1e-4 --scale_factor 0.18215  \
+    --model_type adm \
+    --condition_concat True \
+    --save_content --save_content_every 10 \
 
 
 ############################################### ADM ~ CelebA 256 ###############################################

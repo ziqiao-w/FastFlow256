@@ -73,11 +73,11 @@ def train(args):
     if args.use_grad_checkpointing and "DiT" in args.model_type:
         model.set_gradient_checkpointing()
 
-    # first_stage_model = AutoencoderKL.from_pretrained(args.pretrained_autoencoder_ckpt).to(device, dtype=dtype)
-    # first_stage_model = first_stage_model.eval()
-    # first_stage_model.train = False
-    # for param in first_stage_model.parameters():
-    #     param.requires_grad = False
+    first_stage_model = AutoencoderKL.from_pretrained(args.pretrained_autoencoder_ckpt).to(device, dtype=dtype)
+    first_stage_model = first_stage_model.eval()
+    first_stage_model.train = False
+    for param in first_stage_model.parameters():
+        param.requires_grad = False
 
     accelerator.print("AutoKL size: {:.3f}MB".format(get_weight(first_stage_model)))
     accelerator.print("FM size: {:.3f}MB".format(get_weight(model)))
@@ -133,26 +133,35 @@ def train(args):
     is_latent_data = True if "latent" in args.dataset else False
     log_steps = 0
     start_time = time()
+
     for epoch in range(init_epoch, args.num_epoch + 1):
-        for iteration, (x, y) in enumerate(data_loader):
-            x_0 = x.to(device, dtype=dtype, non_blocking=True)
-            y = None if not use_label else y.to(device, non_blocking=True)
+        for iteration, (x, x_T, y) in enumerate(data_loader):
+            x_0 = x.to(device, dtype=dtype, non_blocking=True) # x_0 is the real data
+            x_1 = x_T.to(device, dtype=dtype, non_blocking=True) # x_1 is the conditional data
+
+            # y = None if not use_label else y.to(device, non_blocking=True)
             model.zero_grad()
-            # if is_latent_data:
-            #     z_0 = x_0 * args.scale_factor
-            # else:
-            #     z_0 = first_stage_model.encode(x_0).latent_dist.sample().mul_(args.scale_factor)
-            z_0 = x_0
+            if is_latent_data:
+                z_0 = x_0 * args.scale_factor
+                z_1 = x_1 * args.scale_factor
+            else:
+                z_0 = first_stage_model.encode(x_0).latent_dist.sample().mul_(args.scale_factor)
+                z_1 = first_stage_model.encode(x_1).latent_dist.sample().mul_(args.scale_factor)
+            # z_0 = x_0
             # sample t
             t = torch.rand((z_0.size(0),), dtype=dtype, device=device)
             t = t.view(-1, 1, 1, 1)
-            z_1 = torch.randn_like(z_0)
-            # 1 is real noise, 0 is real data
-            z_t = (1 - t) * z_0 + t * z_1
-            # u = z_1 - z_0
-            u = torch.cat([z_0, z_1], dim=1)
+            # print(z_0.size(), z_1.size())
+            # I_0 = z_0 - z_1
+            I_0 = z_0
+            I_1 = 0.02 * torch.randn_like(z_0) + z_1 # add noise to latent z_1
+            #
+            #  1 is real noise, 0 is real data
+            I_t = (1 - t) * I_0 + (1e-5 + (1 - 1e-5) * t) * I_1
+            u = (1 - 1e-5) * I_1 - I_0
+            # u = torch.cat([z_0, z_1], dim=1)
             # estimate velocity
-            v = model(t.squeeze(), z_t, y)
+            v = model(t.squeeze(), I_t, y, xT=z_1)
             loss = F.mse_loss(v, u)
             accelerator.backward(loss)
             optimizer.step()
@@ -177,57 +186,80 @@ def train(args):
 
         if accelerator.is_main_process:
             if epoch % args.plot_every == 0:
-                with torch.no_grad():
-                    rand = torch.randn_like(z_0)[:4]
-                    if y is not None:
-                        y = y[:4]
-
-                    class model_ot_(torch.nn.Module):
-                        def __init__(self, model):
-                            super().__init__()
-                            self.model = model
+                    with torch.no_grad():
+                        rand = torch.randn_like(z_0)[:4]
+                        if y is not None:
+                            y = y[:4]
+                        x1_ = x_1[:4]
+                        x0_ = x_0[:4]
+                        torchvision.utils.save_image(
+                        x0_,
+                        os.path.join(exp_path, "epoch_{}_target.png".format(epoch)),
+                        normalize=True,
+                        value_range=(-1, 1),
+                        nrow=8,
+                        )
+                        torchvision.utils.save_image(
+                        x1_,
+                        os.path.join(exp_path, "epoch_{}_cond.png".format(epoch)),
+                        normalize=True,
+                        value_range=(-1, 1),
+                        nrow=8,
+                        )
+                        z1_ = z_1[:4]
+                        I1_ = z1_ + 0.02 * rand
+                        # class model_ot_(torch.nn.Module):
+                        #     def __init__(self, model):
+                        #         super().__init__()
+                        #         self.model = model
+                            
+                        #     def forward(self, t, x, y=None):
+                        #         z0, z1 = self.model(t, x, y=y).chunk(2, dim=1)
+                        #         return z1 - z0
                         
-                        def forward(self, t, x, y=None):
-                            z0, z1 = self.model(t, x, y=y).chunk(2, dim=1)
-                            return z1 - z0
-                    
-                    sample_model = partial(model_ot_(model), y=y)
-                    # sample_func = lambda t, x: model(t, x, y=y)
-                    fake_sample = sample_from_model(sample_model, rand)[-1]
-                    # fake_image = first_stage_model.decode(fake_sample / args.scale_factor).sample
-                    fake_image = fake_sample
-                torchvision.utils.save_image(
-                    fake_image,
-                    os.path.join(exp_path, "image_epoch_{}.png".format(epoch)),
-                    normalize=True,
-                    value_range=(-1, 1),
-                )
-                accelerator.print("Finish sampling")
+                        # sample_model = partial(model_ot_(model), y=y)
+                        sample_model = partial(model, y=y, xT=z1_)
+                        # sample_func = lambda t, x: model(t, x, y=y)
+                        # fake_sample = sample_from_model(sample_model, rand)[-1]
+                        t = torch.tensor([1.0, 0.0], dtype=I1_.dtype, device="cuda")
+                        I0_ = odeint(sample_model, I1_, t, atol=1e-5, rtol=1e-5, adjoint_params=sample_model.func.parameters())
+                        
+                        # z0_ = z1_ + I0_[-1]
+                        z0_ = I0_[-1]
+                        fake_image = first_stage_model.decode(z0_ / args.scale_factor).sample
+                    torchvision.utils.save_image(
+                        fake_image,
+                        os.path.join(exp_path, "epoch_{}_sample.png".format(epoch)),
+                        normalize=True,
+                        value_range=(-1, 1),
+                        nrow=8,
+                    )
+                    accelerator.print("Finish sampling")
 
             if args.save_content:
-                if epoch % args.save_content_every == 0:
-                    accelerator.print("Saving content.")
-                    content = {
-                        "epoch": epoch + 1,
-                        "global_step": global_step,
-                        "args": args,
-                        "model_dict": model.state_dict(),
-                        "optimizer": optimizer.state_dict(),
-                        "scheduler": scheduler.state_dict(),
-                    }
+                    if epoch % args.save_content_every == 0:
+                        accelerator.print("Saving content.")
+                        content = {
+                            "epoch": epoch + 1,
+                            "global_step": global_step,
+                            "args": args,
+                            "model_dict": model.state_dict(),
+                            "optimizer": optimizer.state_dict(),
+                            "scheduler": scheduler.state_dict(),
+                        }
 
-                    torch.save(content, os.path.join(exp_path, "content.pth"))
+                        torch.save(content, os.path.join(exp_path, "content.pth"))
 
             if epoch % args.save_ckpt_every == 0:
-                if args.use_ema:
-                    optimizer.swap_parameters_with_ema(store_params_in_ema=True)
+                    if args.use_ema:
+                        optimizer.swap_parameters_with_ema(store_params_in_ema=True)
 
-                torch.save(
-                    model.state_dict(),
-                    os.path.join(exp_path, "model_{}.pth".format(epoch)),
-                )
-                if args.use_ema:
-                    optimizer.swap_parameters_with_ema(store_params_in_ema=True)
+                    torch.save(
+                        model.state_dict(),
+                        os.path.join(exp_path, "model_{}.pth".format(epoch)),
+                    )
+                    if args.use_ema:
+                        optimizer.swap_parameters_with_ema(store_params_in_ema=True)
 
 
 # %%
@@ -312,7 +344,7 @@ if __name__ == "__main__":
     parser.add_argument("--num_head_upsample", type=int, default=-1, help="number of head upsample")
     parser.add_argument("--num_head_channels", type=int, default=-1, help="number of head channels")
 
-    parser.add_argument("--pretrained_autoencoder_ckpt", type=str, default="/mnt/nas_jiasheng/zhaowangbo/dynamic_diffusion_NeurIPS2024/stabilityai/sd-vae-ft-ema")
+    parser.add_argument("--pretrained_autoencoder_ckpt", type=str, default="/home/nus-wzq/.cache/huggingface/hub/models--stabilityai--sd-vae-ft-mse/snapshots/31f26fdeee1355a5c34592e401dd41e45d25a493")
 
     # training
     parser.add_argument("--exp", default="experiment_cifar_default", help="name of experiment")
@@ -347,6 +379,6 @@ if __name__ == "__main__":
     )
     parser.add_argument("--save_ckpt_every", type=int, default=25, help="save ckpt every x epochs")
     parser.add_argument("--plot_every", type=int, default=5, help="plot every x epochs")
-
+    parser.add_argument("--condition_concat", type=bool, default=False)
     args = parser.parse_args()
     train(args)

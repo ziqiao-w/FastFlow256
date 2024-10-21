@@ -125,6 +125,19 @@ def get_dataset(args):
             ]
         )
         dataset = LMDBDataset(root=args.datadir, name="ffhq", train=True, transform=train_transform)
+    
+
+    elif args.dataset == "edges2shoes":
+        from .aligned_dataset import EdgesDataset
+        train_transform = transforms.Compose(
+            [
+                transforms.Resize(args.image_size),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+            ]
+        )
+        dataset = EdgesDataset(dataroot=args.datadir, train=True, img_size=args.image_size, random_crop=True, random_flip=True)
     return dataset
 
 

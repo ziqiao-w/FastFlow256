@@ -729,6 +729,7 @@ class DhariwalUNet(torch.nn.Module):
         dropout=0.10,  # List of resolutions with self-attention.
         label_dropout=0,  # Dropout probability of class labels for classifier-free guidance.
         use_context=False,  # Use context embeddings in UNetBlock
+        condition_concat=False,  
     ):
         super().__init__()
         self.label_dim = label_dim
@@ -770,7 +771,8 @@ class DhariwalUNet(torch.nn.Module):
 
         # Encoder.
         self.enc = torch.nn.ModuleDict()
-        cout = in_channels
+        self.condition_concat = condition_concat
+        cout = in_channels * 2 if condition_concat else in_channels
         for level, mult in enumerate(channel_mult):
             res = img_resolution >> level
             if level == 0:
@@ -809,7 +811,9 @@ class DhariwalUNet(torch.nn.Module):
         self.out_norm = GroupNorm(num_channels=cout)
         self.out_conv = Conv2d(in_channels=cout, out_channels=out_channels, kernel=3, **init_zero)
 
-    def forward(self, noise_labels, x, y=None, augment_labels=None, drop_half_label=False, **kwargs):
+    def forward(self, noise_labels, x, y=None, augment_labels=None, drop_half_label=False, xT=None, **kwargs):
+        if self.condition_concat:
+            x = torch.cat([x, xT], dim=1)
         # Mapping.
         emb = self.map_noise(noise_labels)
         if self.map_augment is not None and augment_labels is not None:
@@ -918,6 +922,7 @@ def get_edm_network(config):
             attn_resolutions=config.attn_resolutions,
             dropout=config.dropout,
             label_dropout=config.label_dropout,
+            condition_concat = config.condition_concat,
         )
 
     elif config.model_type == "adm_context":
