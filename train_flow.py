@@ -73,13 +73,13 @@ def train(args):
     if args.use_grad_checkpointing and "DiT" in args.model_type:
         model.set_gradient_checkpointing()
 
-    first_stage_model = AutoencoderKL.from_pretrained(args.pretrained_autoencoder_ckpt).to(device, dtype=dtype)
-    first_stage_model = first_stage_model.eval()
-    first_stage_model.train = False
-    for param in first_stage_model.parameters():
-        param.requires_grad = False
+    # first_stage_model = AutoencoderKL.from_pretrained(args.pretrained_autoencoder_ckpt).to(device, dtype=dtype)
+    # first_stage_model = first_stage_model.eval()
+    # first_stage_model.train = False
+    # for param in first_stage_model.parameters():
+    #     param.requires_grad = False
 
-    accelerator.print("AutoKL size: {:.3f}MB".format(get_weight(first_stage_model)))
+    # accelerator.print("AutoKL size: {:.3f}MB".format(get_weight(first_stage_model)))
     accelerator.print("FM size: {:.3f}MB".format(get_weight(model)))
 
     optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=0.0)
@@ -107,7 +107,17 @@ def train(args):
         checkpoint = torch.load(checkpoint_file, map_location=device)
         init_epoch = checkpoint["epoch"]
         epoch = init_epoch
-        model.load_state_dict(checkpoint["model_dict"])
+        state_dict = checkpoint["model_dict"]
+        try:
+            model.load_state_dict(state_dict)
+        except RuntimeError:
+            from collections import OrderedDict
+
+            new_state_dict = OrderedDict()
+            for k, v in state_dict.items():
+                new_state_dict[k[7:]] = v
+            model.load_state_dict(new_state_dict)
+        # model.load_state_dict(checkpoint["model_dict"])
         # load G
         optimizer.load_state_dict(checkpoint["optimizer"])
         scheduler.load_state_dict(checkpoint["scheduler"])
@@ -130,7 +140,7 @@ def train(args):
         global_step, epoch, init_epoch = 0, 0, 0
 
     use_label = True if "imagenet" in args.dataset else False
-    is_latent_data = True if "latent" in args.dataset else False
+    # is_latent_data = True if "latent" in args.dataset else False
     log_steps = 0
     start_time = time()
 
@@ -141,27 +151,25 @@ def train(args):
 
             y = None if not use_label else y.to(device, non_blocking=True)
             model.zero_grad()
-            if is_latent_data:
-                z_0 = x_0 * args.scale_factor
-                z_1 = x_1 * args.scale_factor
-            else:
-                z_0 = first_stage_model.encode(x_0).latent_dist.sample().mul_(args.scale_factor)
-                z_1 = first_stage_model.encode(x_1).latent_dist.sample().mul_(args.scale_factor)
-            # z_0 = x_0
+            # if is_latent_data:
+            #     z_0 = x_0 * args.scale_factor
+            #     z_1 = x_1 * args.scale_factor
+            # else:
+            #     z_0 = first_stage_model.encode(x_0).latent_dist.sample().mul_(args.scale_factor)
+            #     z_1 = first_stage_model.encode(x_1).latent_dist.sample().mul_(args.scale_factor)
+            z_0 = x_0
+            z_1 = x_1
             # sample t
             t = torch.rand((z_0.size(0),), dtype=dtype, device=device)
             t = t.view(-1, 1, 1, 1)
             # print(z_0.size(), z_1.size())
-            if args.use_residue:
-                I_0 = z_0 - z_1
-            else:
-                I_0 = z_0
+            I_0 = z_0 - z_1 # use res
+            # I_0 = z_0
             I_1 = 0.02 * torch.randn_like(z_0) + z_1 # add noise to latent z_1
             #
             #  1 is real noise, 0 is real data
             I_t = (1 - t) * I_0 + (1e-5 + (1 - 1e-5) * t) * I_1
             u = (1 - 1e-5) * I_1 - I_0
-            # u = torch.cat([z_0, z_1], dim=1)
             # estimate velocity
             v = model(t.squeeze(), I_t, y, xT=z_1)
             loss = F.mse_loss(v, u)
@@ -186,8 +194,9 @@ def train(args):
         if not args.no_lr_decay:
             scheduler.step()
 
-        if accelerator.is_main_process:
-            if epoch % args.plot_every == 0:
+        # accelerator.wait_for_everyone()
+        # if accelerator.is_main_process:
+        if epoch % args.plot_every == 0:
                     with torch.no_grad():
                         rand = torch.randn_like(z_0)[:4]
                         if y is not None:
@@ -210,7 +219,6 @@ def train(args):
                         )
                         z1_ = z_1[:4]
                         I1_ = z1_ + 0.02 * rand
-                        # I1_ = z1_
                         # class model_ot_(torch.nn.Module):
                         #     def __init__(self, model):
                         #         super().__init__()
@@ -226,11 +234,11 @@ def train(args):
                         # fake_sample = sample_from_model(sample_model, rand)[-1]
                         t = torch.tensor([1.0, 0.0], dtype=I1_.dtype, device="cuda")
                         I0_ = odeint(sample_model, I1_, t, atol=1e-5, rtol=1e-5, adjoint_params=sample_model.func.parameters())
-                        if args.use_residue:
-                            z0_ = z1_ + I0_[-1]
-                        else:
-                            z0_ = I0_[-1]
-                        fake_image = first_stage_model.decode(z0_ / args.scale_factor).sample
+                        
+                        z0_ = z1_ + I0_[-1]
+                        # z0_ = I0_[-1]
+                        # fake_image = first_stage_model.decode(z0_ / args.scale_factor).sample
+                        fake_image = z0_
                     torchvision.utils.save_image(
                         fake_image,
                         os.path.join(exp_path, "epoch_{}_sample.png".format(epoch)),
@@ -240,7 +248,7 @@ def train(args):
                     )
                     accelerator.print("Finish sampling")
 
-            if args.save_content:
+        if args.save_content:
                     if epoch % args.save_content_every == 0:
                         accelerator.print("Saving content.")
                         content = {
@@ -254,7 +262,7 @@ def train(args):
 
                         torch.save(content, os.path.join(exp_path, "content.pth"))
 
-            if epoch % args.save_ckpt_every == 0:
+        if epoch % args.save_ckpt_every == 0:
                     if args.use_ema:
                         optimizer.swap_parameters_with_ema(store_params_in_ema=True)
 
@@ -264,8 +272,9 @@ def train(args):
                     )
                     if args.use_ema:
                         optimizer.swap_parameters_with_ema(store_params_in_ema=True)
+        # accelerator.wait_for_everyone()
 
-
+            
 # %%
 if __name__ == "__main__":
     parser = argparse.ArgumentParser("ddgan parameters")
@@ -384,6 +393,5 @@ if __name__ == "__main__":
     parser.add_argument("--save_ckpt_every", type=int, default=25, help="save ckpt every x epochs")
     parser.add_argument("--plot_every", type=int, default=5, help="plot every x epochs")
     parser.add_argument("--condition_concat", type=bool, default=False)
-    parser.add_argument("--use_residue", type=bool, default=False)
     args = parser.parse_args()
     train(args)

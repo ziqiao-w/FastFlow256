@@ -127,7 +127,7 @@ def get_dataset(args):
         dataset = LMDBDataset(root=args.datadir, name="ffhq", train=True, transform=train_transform)
     
 
-    elif args.dataset == "edges2shoes":
+    elif args.dataset == "edges2shoes" or args.dataset == "edges2handbags":
         from .aligned_dataset import EdgesDataset
         train_transform = transforms.Compose(
             [
